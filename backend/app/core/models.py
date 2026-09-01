@@ -23,6 +23,9 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     nom = Column(String(100), nullable=False)
     prenom = Column(String(100), nullable=False)
+    # Auth classique pour l'instant (email/mot de passe). Nullable car on
+    # basculera plus tard vers Microsoft Entra ID, où il n'y aura pas de mot
+    # de passe stocké chez nous.
     password_hash = Column(String(255), nullable=True)
     actif = Column(Boolean, default=True, nullable=False)
     date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -57,11 +60,16 @@ class Role(Base):
 
 
 class UserRole(Base):
+    """Un utilisateur peut avoir plusieurs lignes ici : un même user peut être
+    rédacteur sur le Service A ET vérificateur sur le Service B, par exemple."""
+
     __tablename__ = "user_roles"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+    # Nullable : certains rôles (ex: direction_generale) ne sont pas liés à
+    # un service précis.
     service_id = Column(Integer, ForeignKey("services.id"), nullable=True)
 
     user = relationship("User", back_populates="roles")
@@ -76,6 +84,10 @@ class ObjectType(str, enum.Enum):
 
 
 class StatusHistory(Base):
+    """Table générique réutilisée par les 3 modules métier : chaque
+    changement de statut d'un document, d'un événement ou d'un audit
+    laisse une trace ici."""
+
     __tablename__ = "status_history"
 
     id = Column(Integer, primary_key=True)
@@ -88,6 +100,22 @@ class StatusHistory(Base):
     commentaire = Column(Text, nullable=True)
 
     user = relationship("User")
+
+
+class Permission(Base):
+    """Permissions configurables par rôle/module/action — pas de droits
+    codés en dur dans le code. Ex: role_id=qualite, module="documentaire",
+    action="publish", autorise=True."""
+
+    __tablename__ = "permissions"
+
+    id = Column(Integer, primary_key=True)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+    module = Column(String(50), nullable=False)  # "documentaire", "evenements", "audits", "admin"
+    action = Column(String(50), nullable=False)  # "create", "read", "publish", "manage_users"...
+    autorise = Column(Boolean, default=True, nullable=False)
+
+    role = relationship("Role")
 
 
 class Notification(Base):

@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.auth_router import router as auth_router
 from app.core.config import settings
+from app.core.roles_router import router as roles_router
+from app.core.scheduler import start_scheduler
+from app.core.status_engine import router as history_router
 
 app = FastAPI(title="QUALITE-UM6PH — Plateforme Qualité UM6P Hospitals")
 
@@ -13,16 +17,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/auth", tags=["auth"])
+app.include_router(roles_router, prefix="/admin", tags=["admin"])
+app.include_router(history_router, prefix="/history", tags=["history"])
+
+
+@app.on_event("startup")
+def on_startup():
+    start_scheduler()
+
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-# Les routers des modules métier seront branchés ici au fur et à mesure :
-# from app.documentaire.router import router as documentaire_router
-# from app.evenements.router import router as evenements_router
-# from app.audits.router import router as audits_router
-# app.include_router(documentaire_router, prefix="/documents", tags=["documentaire"])
-# app.include_router(evenements_router, prefix="/events", tags=["evenements"])
-# app.include_router(audits_router, prefix="/audits", tags=["audits"])
