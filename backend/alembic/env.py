@@ -7,6 +7,8 @@ from sqlalchemy import pool
 
 from alembic import context
 
+from app.documentaire import models as documentaire_models  
+
 # Permet à Python de trouver le dossier "app" quand alembic est lancé
 # depuis le dossier backend/
 sys.path.append(str(Path(__file__).resolve().parents[1]))

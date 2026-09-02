@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Base de données
-    database_url: str = "postgresql+psycopg://qualite-um6ph:qualite-um6ph@localhost:5432/qualite-um6ph"
+    database_url: str = "postgresql://qualite-um6ph:qualite-um6ph@localhost:5432/qualite-um6ph"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
