@@ -15,9 +15,27 @@ class Document(Base):
     service_id = Column(Integer, ForeignKey("services.id"), nullable=False)
     statut = Column(String(50), nullable=False, default="en_attente_examen")
     version_courante = Column(Integer, nullable=False, default=1)
+    perimetre = Column(Text, nullable=True)
+    confidentialite = Column(String(50), nullable=True)  # "public", "restreint", "confidentiel"
     date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     service = relationship("Service")
+    assignments = relationship("DocumentAssignment", back_populates="document")
+
+
+class DocumentAssignment(Base):
+    """Un rédacteur, vérificateur ou approbateur assigné à un document.
+    Plusieurs lignes possibles par document (ex: 2 vérificateurs)."""
+
+    __tablename__ = "document_assignments"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role_document = Column(String(20), nullable=False)  # "redacteur", "verificateur", "approbateur"
+
+    document = relationship("Document", back_populates="assignments")
+    user = relationship("User")
 
 
 class DocumentRequest(Base):
@@ -30,7 +48,8 @@ class DocumentRequest(Base):
     demandeur_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     responsable_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     statut = Column(String(50), nullable=False, default="en_attente_examen")
-    pieces_jointes = Column(JSON, nullable=True)  # liste de noms de fichiers
+    pieces_jointes = Column(JSON, nullable=True)
+    motif_rejet = Column(Text, nullable=True)
     date = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     document = relationship("Document")
