@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import AppHeader from "@/components/AppHeader";
 
 interface Service {
   id: number;
@@ -52,9 +53,8 @@ export default function NouvelleDemandePage() {
 
   return (
     <>
-      <div className="header-bar">
-        <strong>QUALITE-UM6PH</strong> — Gestion documentaire
-      </div>
+      <AppHeader title="Nouvelle demande" />
+
       <form className="card" onSubmit={handleSubmit}>
         <h2>Nouvelle demande de document</h2>
 

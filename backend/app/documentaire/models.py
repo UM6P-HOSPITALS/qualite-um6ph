@@ -16,7 +16,8 @@ class Document(Base):
     statut = Column(String(50), nullable=False, default="en_attente_examen")
     version_courante = Column(Integer, nullable=False, default=1)
     perimetre = Column(Text, nullable=True)
-    confidentialite = Column(String(50), nullable=True)  # "public", "restreint", "confidentiel"
+    confidentialite = Column(String(50), nullable=True)
+    contenu = Column(Text, nullable=True)  # brouillon/contenu rédigé
     date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     service = relationship("Service")
@@ -24,15 +25,12 @@ class Document(Base):
 
 
 class DocumentAssignment(Base):
-    """Un rédacteur, vérificateur ou approbateur assigné à un document.
-    Plusieurs lignes possibles par document (ex: 2 vérificateurs)."""
-
     __tablename__ = "document_assignments"
 
     id = Column(Integer, primary_key=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    role_document = Column(String(20), nullable=False)  # "redacteur", "verificateur", "approbateur"
+    role_document = Column(String(20), nullable=False)
 
     document = relationship("Document", back_populates="assignments")
     user = relationship("User")
@@ -43,7 +41,7 @@ class DocumentRequest(Base):
 
     id = Column(Integer, primary_key=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
-    nature = Column(String(20), nullable=False)  # "creation" ou "modification"
+    nature = Column(String(20), nullable=False)
     justification = Column(Text, nullable=False)
     demandeur_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     responsable_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -55,3 +53,41 @@ class DocumentRequest(Base):
     document = relationship("Document")
     demandeur = relationship("User", foreign_keys=[demandeur_id])
     responsable = relationship("User", foreign_keys=[responsable_id])
+
+
+class DocumentTemplate(Base):
+    """Template réutilisable par type de document (procédure, protocole...).
+    Le rédacteur démarre sa rédaction à partir de ce contenu de base."""
+
+    __tablename__ = "document_templates"
+
+    id = Column(Integer, primary_key=True)
+    type_document = Column(String(100), nullable=False)
+    nom = Column(String(150), nullable=False)
+    contenu_structure = Column(Text, nullable=False)
+    date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+class DocumentComment(Base):
+    __tablename__ = "document_comments"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    contenu = Column(Text, nullable=False)
+    date = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    document = relationship("Document")
+    user = relationship("User")
+
+class DocumentSignature(Base):
+    __tablename__ = "document_signatures"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role_signataire = Column(String(20), nullable=False)  # "redacteur" ou "verificateur"
+    hash_contenu = Column(String(64), nullable=False)
+    date = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    document = relationship("Document")
+    user = relationship("User")

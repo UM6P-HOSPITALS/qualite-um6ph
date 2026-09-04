@@ -40,11 +40,11 @@ class DocumentRequestPendingOut(BaseModel):
 
 
 class DocumentAcceptRequest(BaseModel):
-    redacteur_emails: list[EmailStr]
-    verificateur_emails: list[EmailStr]
-    approbateur_emails: list[EmailStr] = []
+    redacteur_emails: list[str]
+    verificateur_emails: list[str]
+    approbateur_emails: list[str] = []
     perimetre: str
-    confidentialite: str  # "public", "restreint", "confidentiel"
+    confidentialite: str
 
 
 class DocumentRejectRequest(BaseModel):
@@ -55,6 +55,67 @@ class ServiceOut(BaseModel):
     id: int
     nom: str
     site_id: int
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentTemplateCreate(BaseModel):
+    type_document: str
+    nom: str
+    contenu_structure: str
+
+
+class DocumentTemplateOut(BaseModel):
+    id: int
+    type_document: str
+    nom: str
+    contenu_structure: str
+    date_creation: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentTemplateUpdate(BaseModel):
+    nom: str | None = None
+    contenu_structure: str | None = None
+
+
+class DraftSave(BaseModel):
+    contenu: str
+
+
+class DocumentDetailOut(BaseModel):
+    id: int
+    intitule: str
+    type_document: str
+    statut: str
+    contenu: str | None
+    perimetre: str | None
+    confidentialite: str | None
+
+    class Config:
+        from_attributes = True
+
+class CommentCreate(BaseModel):
+    contenu: str
+
+
+class CommentOut(BaseModel):
+    id: int
+    user_email: str
+    contenu: str
+    date: datetime
+
+    class Config:
+        from_attributes = True
+
+class SignatureOut(BaseModel):
+    id: int
+    user_email: str
+    role_signataire: str
+    date: datetime
 
     class Config:
         from_attributes = True

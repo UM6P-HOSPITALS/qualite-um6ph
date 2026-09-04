@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import AppHeader from "@/components/AppHeader";
 
 interface PendingRequest {
   id: number;
@@ -79,9 +80,7 @@ export default function ExamenPage() {
 
   return (
     <>
-      <div className="header-bar">
-        <strong>QUALITE-UM6PH</strong> — Examen des demandes
-      </div>
+      <AppHeader title="Examen des demandes" />
 
       <div style={{ maxWidth: 700, margin: "2rem auto" }}>
         {error && <p className="error">{error}</p>}
