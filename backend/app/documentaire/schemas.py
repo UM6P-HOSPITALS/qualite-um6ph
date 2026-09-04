@@ -98,6 +98,7 @@ class DocumentDetailOut(BaseModel):
     class Config:
         from_attributes = True
 
+
 class CommentCreate(BaseModel):
     contenu: str
 
@@ -111,10 +112,18 @@ class CommentOut(BaseModel):
     class Config:
         from_attributes = True
 
+
+class SignatureConfirm(BaseModel):
+    nom_signature: str
+    password: str
+    certification: bool
+
+
 class SignatureOut(BaseModel):
     id: int
     user_email: str
     role_signataire: str
+    nom_signature: str
     date: datetime
 
     class Config:

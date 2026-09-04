@@ -17,7 +17,7 @@ class Document(Base):
     version_courante = Column(Integer, nullable=False, default=1)
     perimetre = Column(Text, nullable=True)
     confidentialite = Column(String(50), nullable=True)
-    contenu = Column(Text, nullable=True)  # brouillon/contenu rédigé
+    contenu = Column(Text, nullable=True)
     date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     service = relationship("Service")
@@ -56,9 +56,6 @@ class DocumentRequest(Base):
 
 
 class DocumentTemplate(Base):
-    """Template réutilisable par type de document (procédure, protocole...).
-    Le rédacteur démarre sa rédaction à partir de ce contenu de base."""
-
     __tablename__ = "document_templates"
 
     id = Column(Integer, primary_key=True)
@@ -66,6 +63,7 @@ class DocumentTemplate(Base):
     nom = Column(String(150), nullable=False)
     contenu_structure = Column(Text, nullable=False)
     date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
+
 
 class DocumentComment(Base):
     __tablename__ = "document_comments"
@@ -79,13 +77,15 @@ class DocumentComment(Base):
     document = relationship("Document")
     user = relationship("User")
 
+
 class DocumentSignature(Base):
     __tablename__ = "document_signatures"
 
     id = Column(Integer, primary_key=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    role_signataire = Column(String(20), nullable=False)  # "redacteur" ou "verificateur"
+    role_signataire = Column(String(20), nullable=False)
+    nom_signature = Column(String(150), nullable=False)
     hash_contenu = Column(String(64), nullable=False)
     date = Column(DateTime, default=datetime.utcnow, nullable=False)
 

@@ -1,13 +1,13 @@
+import hashlib
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.models import Role, Service, User, UserRole
 from app.core.permissions import require_permission
-from app.core.security import get_current_user
+from app.core.security import get_current_user, verify_password
 from app.core.status_engine import ObjectType, change_status, notify
-import hashlib
-
 from app.documentaire.models import (
     Document,
     DocumentAssignment,
@@ -30,6 +30,7 @@ from app.documentaire.schemas import (
     DocumentTemplateUpdate,
     DraftSave,
     ServiceOut,
+    SignatureConfirm,
     SignatureOut,
 )
 
@@ -276,8 +277,6 @@ def list_templates(
     db: Session = Depends(get_db),
     _current_user: User = Depends(get_current_user),
 ):
-    """Lecture ouverte à tout utilisateur connecté (les rédacteurs en ont
-    besoin), seule la modification est réservée Qualité."""
     return db.query(DocumentTemplate).all()
 
 
@@ -373,6 +372,7 @@ def save_draft(
     db.commit()
     db.refresh(document)
     return document
+
 
 def _get_assignment(db: Session, document_id: int, user_id: int, role_document: str):
     return (
@@ -528,6 +528,7 @@ def return_to_author(
     db.refresh(document)
     return document
 
+
 def _assigned_roles(db: Session, document_id: int, user_id: int) -> list[str]:
     assignments = (
         db.query(DocumentAssignment)
@@ -541,8 +542,6 @@ def _assigned_roles(db: Session, document_id: int, user_id: int) -> list[str]:
 
 
 def _check_all_signed(db: Session, document: Document) -> bool:
-    """Vérifie que tous les rédacteurs ET tous les vérificateurs assignés
-    ont signé. Si oui, fait passer le document au statut 'verifie'."""
     assignments = (
         db.query(DocumentAssignment)
         .filter(
@@ -566,12 +565,25 @@ def _check_all_signed(db: Session, document: Document) -> bool:
 @router.post("/{document_id}/sign", response_model=SignatureOut, status_code=201)
 def sign_document(
     document_id: int,
+    payload: SignatureConfirm,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document introuvable")
+
+    if not payload.nom_signature.strip():
+        raise HTTPException(status_code=400, detail="Le nom de signature est requis")
+
+    if not payload.certification:
+        raise HTTPException(
+            status_code=400,
+            detail="Vous devez certifier avoir vérifié le document avant de signer",
+        )
+
+    if not current_user.password_hash or not verify_password(payload.password, current_user.password_hash):
+        raise HTTPException(status_code=401, detail="Mot de passe incorrect — signature refusée")
 
     if document.statut != "en_cours_verification":
         raise HTTPException(
@@ -610,6 +622,7 @@ def sign_document(
         document_id=document_id,
         user_id=current_user.id,
         role_signataire=role_signataire,
+        nom_signature=payload.nom_signature.strip(),
         hash_contenu=hash_contenu,
     )
     db.add(signature)
@@ -633,6 +646,7 @@ def sign_document(
         id=signature.id,
         user_email=current_user.email,
         role_signataire=signature.role_signataire,
+        nom_signature=signature.nom_signature,
         date=signature.date,
     )
 
@@ -649,7 +663,13 @@ def list_signatures(
         .all()
     )
     return [
-        SignatureOut(id=s.id, user_email=s.user.email, role_signataire=s.role_signataire, date=s.date)
+        SignatureOut(
+            id=s.id,
+            user_email=s.user.email,
+            role_signataire=s.role_signataire,
+            nom_signature=s.nom_signature,
+            date=s.date,
+        )
         for s in signatures
     ]
 
@@ -662,7 +682,6 @@ def add_assignment(
     db: Session = Depends(get_db),
     _=Depends(require_permission("documentaire", "manage_assignments")),
 ):
-    """Ajouter un vérificateur en cours de route (réservé Qualité)."""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document introuvable")
@@ -705,7 +724,6 @@ def remove_assignment(
     db: Session = Depends(get_db),
     _=Depends(require_permission("documentaire", "manage_assignments")),
 ):
-    """Retirer un vérificateur en cours de route (réservé Qualité)."""
     assignment = (
         db.query(DocumentAssignment)
         .filter(DocumentAssignment.id == assignment_id, DocumentAssignment.document_id == document_id)
