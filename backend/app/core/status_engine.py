@@ -14,11 +14,12 @@ router = APIRouter()
 # Transitions autorisées par type d'objet. À enrichir au fur et à mesure
 # que chaque module métier (documentaire, evenements, audits) est codé.
 ALLOWED_TRANSITIONS: dict[ObjectType, dict[str, list[str]]] = {
-    ObjectType.document: {
+        ObjectType.document: {
         "en_attente_examen": ["en_cours_redaction", "rejetee"],
         "en_cours_redaction": ["en_cours_verification"],
         "en_cours_verification": ["en_cours_redaction", "verifie"],
-        "verifie": ["valide"],
+        "verifie": ["en_attente_validation"],
+        "en_attente_validation": ["valide"],
         "valide": ["diffuse"],
         "diffuse": ["a_reviser"],
         "a_reviser": ["en_cours_redaction"],

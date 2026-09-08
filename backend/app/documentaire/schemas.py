@@ -128,3 +128,33 @@ class SignatureOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ValidationCircuitCreate(BaseModel):
+    type_document: str
+    role_direction: str
+
+
+class ValidationCircuitOut(BaseModel):
+    id: int
+    type_document: str
+    role_direction: str
+
+    class Config:
+        from_attributes = True
+
+
+class ValidationConfirm(BaseModel):
+    nom_signature: str
+    password: str
+    certification: bool
+
+
+class ValidationOut(BaseModel):
+    id: int
+    user_email: str
+    role_direction: str
+    nom_signature: str
+    date: datetime
+
+    class Config:
+        from_attributes = True

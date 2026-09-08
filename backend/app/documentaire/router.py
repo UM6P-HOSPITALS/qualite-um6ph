@@ -8,6 +8,7 @@ from app.core.models import Role, Service, User, UserRole
 from app.core.permissions import require_permission
 from app.core.security import get_current_user, verify_password
 from app.core.status_engine import ObjectType, change_status, notify
+from app.core.models import Role, Service, User, UserRole
 from app.documentaire.models import (
     Document,
     DocumentAssignment,
@@ -15,6 +16,8 @@ from app.documentaire.models import (
     DocumentRequest,
     DocumentSignature,
     DocumentTemplate,
+    DocumentValidation,
+    ValidationCircuit,
 )
 from app.documentaire.schemas import (
     CommentCreate,
@@ -32,6 +35,10 @@ from app.documentaire.schemas import (
     ServiceOut,
     SignatureConfirm,
     SignatureOut,
+    ValidationCircuitCreate,
+    ValidationCircuitOut,
+    ValidationConfirm,
+    ValidationOut,
 )
 
 router = APIRouter()
@@ -734,3 +741,224 @@ def remove_assignment(
 
     db.delete(assignment)
     db.commit()
+
+DIRECTION_ROLES = [
+    "direction_generale",
+    "direction_medicale",
+    "direction_financiere",
+    "direction_rh",
+]
+
+
+@router.get("/validation-circuits", response_model=list[ValidationCircuitOut])
+def list_validation_circuits(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("documentaire", "manage_validation_circuits")),
+):
+    return db.query(ValidationCircuit).all()
+
+
+@router.post("/validation-circuits", response_model=ValidationCircuitOut, status_code=201)
+def create_validation_circuit(
+    payload: ValidationCircuitCreate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("documentaire", "manage_validation_circuits")),
+):
+    if payload.role_direction not in DIRECTION_ROLES:
+        raise HTTPException(status_code=400, detail=f"role_direction doit être l'un de {DIRECTION_ROLES}")
+
+    circuit = ValidationCircuit(type_document=payload.type_document, role_direction=payload.role_direction)
+    db.add(circuit)
+    db.commit()
+    db.refresh(circuit)
+    return circuit
+
+
+@router.delete("/validation-circuits/{circuit_id}", status_code=204)
+def delete_validation_circuit(
+    circuit_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("documentaire", "manage_validation_circuits")),
+):
+    circuit = db.query(ValidationCircuit).filter(ValidationCircuit.id == circuit_id).first()
+    if not circuit:
+        raise HTTPException(status_code=404, detail="Circuit introuvable")
+    db.delete(circuit)
+    db.commit()
+
+
+def _required_direction_roles(db: Session, type_document: str) -> list[str]:
+    circuits = db.query(ValidationCircuit).filter(ValidationCircuit.type_document == type_document).all()
+    return [c.role_direction for c in circuits]
+
+
+@router.patch("/{document_id}/submit-validation", response_model=DocumentDetailOut)
+def submit_validation(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _=Depends(require_permission("documentaire", "submit_validation")),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    if document.statut != "verifie":
+        raise HTTPException(status_code=400, detail="Le document doit être vérifié avant soumission à validation")
+
+    required_roles = _required_direction_roles(db, document.type_document)
+    if not required_roles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Aucun circuit de validation configuré pour le type '{document.type_document}'",
+        )
+
+    ancien_statut = document.statut
+    document.statut = "en_attente_validation"
+    db.commit()
+
+    change_status(
+        db,
+        object_type=ObjectType.document,
+        object_id=document.id,
+        ancien_statut=ancien_statut,
+        nouveau_statut="en_attente_validation",
+        user_id=current_user.id,
+    )
+
+    for role_nom in required_roles:
+        role = db.query(Role).filter(Role.nom == role_nom).first()
+        if not role:
+            continue
+        holders = db.query(UserRole).filter(UserRole.role_id == role.id).all()
+        for h in holders:
+            notify(
+                db,
+                user_id=h.user_id,
+                template_name="a_verifier",
+                context={"objet": f"Validation requise : {document.intitule}"},
+                lien=f"/documents/{document.id}/validation",
+            )
+
+    db.refresh(document)
+    return document
+
+
+def _check_all_validated(db: Session, document: Document) -> bool:
+    required_roles = set(_required_direction_roles(db, document.type_document))
+    if not required_roles:
+        return False
+
+    validations = (
+        db.query(DocumentValidation)
+        .filter(DocumentValidation.document_id == document.id)
+        .all()
+    )
+    validated_roles = {v.role_direction for v in validations}
+
+    return required_roles.issubset(validated_roles)
+
+
+@router.post("/{document_id}/validate", response_model=ValidationOut, status_code=201)
+def validate_document(
+    document_id: int,
+    payload: ValidationConfirm,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    if not payload.nom_signature.strip():
+        raise HTTPException(status_code=400, detail="Le nom de signature est requis")
+
+    if not payload.certification:
+        raise HTTPException(status_code=400, detail="Vous devez certifier avant de valider")
+
+    if not current_user.password_hash or not verify_password(payload.password, current_user.password_hash):
+        raise HTTPException(status_code=401, detail="Mot de passe incorrect — validation refusée")
+
+    if document.statut != "en_attente_validation":
+        raise HTTPException(status_code=400, detail="Le document n'est pas en attente de validation")
+
+    user_role_ids = [ur.role_id for ur in current_user.roles]
+    user_role_names = {
+        r.nom for r in db.query(Role).filter(Role.id.in_(user_role_ids)).all()
+    }
+    required_roles = set(_required_direction_roles(db, document.type_document))
+    matching_roles = user_role_names.intersection(required_roles)
+
+    if not matching_roles:
+        raise HTTPException(
+            status_code=403,
+            detail="Vous n'avez pas un rôle de direction requis pour valider ce document",
+        )
+
+    role_direction = next(iter(matching_roles))
+
+    already = (
+        db.query(DocumentValidation)
+        .filter(
+            DocumentValidation.document_id == document_id,
+            DocumentValidation.role_direction == role_direction,
+        )
+        .first()
+    )
+    if already:
+        raise HTTPException(status_code=400, detail="Ce rôle de direction a déjà validé ce document")
+
+    validation = DocumentValidation(
+        document_id=document_id,
+        user_id=current_user.id,
+        role_direction=role_direction,
+        nom_signature=payload.nom_signature.strip(),
+    )
+    db.add(validation)
+    db.commit()
+    db.refresh(validation)
+
+    if _check_all_validated(db, document):
+        ancien_statut = document.statut
+        document.statut = "valide"
+        document.verrouille = True
+        db.commit()
+        change_status(
+            db,
+            object_type=ObjectType.document,
+            object_id=document.id,
+            ancien_statut=ancien_statut,
+            nouveau_statut="valide",
+            user_id=current_user.id,
+        )
+
+    return ValidationOut(
+        id=validation.id,
+        user_email=current_user.email,
+        role_direction=validation.role_direction,
+        nom_signature=validation.nom_signature,
+        date=validation.date,
+    )
+
+
+@router.get("/{document_id}/validations", response_model=list[ValidationOut])
+def list_validations(
+    document_id: int,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+):
+    validations = (
+        db.query(DocumentValidation)
+        .filter(DocumentValidation.document_id == document_id)
+        .all()
+    )
+    return [
+        ValidationOut(
+            id=v.id,
+            user_email=v.user.email,
+            role_direction=v.role_direction,
+            nom_signature=v.nom_signature,
+            date=v.date,
+        )
+        for v in validations
+    ]

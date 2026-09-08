@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     smtp_password: str = ""
 
     # CORS
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
 
 
 settings = Settings()

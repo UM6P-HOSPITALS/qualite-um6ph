@@ -98,6 +98,17 @@ export default function VerificationPage() {
       setError(err.message);
     }
   }
+  async function handleSubmitValidation() {
+  setError("");
+  setMessage("");
+  try {
+    await apiFetch(`/documents/${documentId}/submit-validation`, { method: "PATCH" });
+    setMessage("Document soumis à validation.");
+    load();
+  } catch (err: any) {
+    setError(err.message);
+  }
+}
 
   if (!document) return <div>Chargement...</div>;
 
@@ -174,17 +185,23 @@ export default function VerificationPage() {
         {error && <p className="error">{error}</p>}
         {message && <p className="success">{message}</p>}
 
-        <div>
-          <button className="btn-primary" onClick={handleReturnToAuthor}>
-            Retourner au rédacteur
-          </button>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
+  <button className="btn-primary" onClick={handleReturnToAuthor}>
+    Retourner au rédacteur
+  </button>
 
-          {!showSignPanel ? (
-            <button className="btn-primary" onClick={() => setShowSignPanel(true)} style={{ marginLeft: "0.75rem" }}>
-              Signer le document
-            </button>
-          ) : null}
-        </div>
+  {!showSignPanel && (
+    <button className="btn-primary" onClick={() => setShowSignPanel(true)}>
+      Signer le document
+    </button>
+  )}
+
+  {document.statut === "verifie" && (
+    <button className="btn-primary" onClick={handleSubmitValidation}>
+      Soumettre à validation
+    </button>
+  )}
+  </div>
 
         {showSignPanel && (
           <div className="card" style={{ marginTop: "1rem", maxWidth: 500 }}>
