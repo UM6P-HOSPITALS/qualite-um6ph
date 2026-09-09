@@ -95,6 +95,7 @@ def create_request(
         type_document=payload.type_document,
         service_id=payload.service_id,
         statut="en_attente_examen",
+        document_parent_id=payload.document_parent_id,
     )
     db.add(document)
     db.commit()
@@ -474,15 +475,35 @@ def search_documents(
     return results
 
 
+def _is_qualite(db: Session, current_user: User) -> bool:
+    return (
+        db.query(Role)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .filter(UserRole.user_id == current_user.id, Role.nom == "qualite")
+        .first()
+        is not None
+    )
+
+
 @router.get("/{document_id}", response_model=DocumentDetailOut)
 def get_document(
     document_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document introuvable")
+
+    if document.statut == "obsolete":
+        is_qualite = _is_qualite(db, current_user)
+        is_redacteur = _get_assignment(db, document_id, current_user.id, "redacteur") is not None
+        if not is_qualite and not is_redacteur:
+            raise HTTPException(
+                status_code=403,
+                detail="Document obsolète : accès restreint au service Qualité et au rédacteur, en lecture seule",
+            )
+
     return document
 
 
@@ -1108,6 +1129,12 @@ def publish_document(
     ancien_statut = document.statut
     document.statut = "diffuse"
     document.date_diffusion = datetime.utcnow()
+
+    if document.document_parent_id:
+        parent = db.query(Document).filter(Document.id == document.document_parent_id).first()
+        if parent:
+            parent.statut = "obsolete"
+
     db.commit()
 
     change_status(

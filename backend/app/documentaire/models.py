@@ -19,6 +19,8 @@ class Document(Base):
     confidentialite = Column(String(50), nullable=True)
     contenu = Column(Text, nullable=True)
     verrouille = Column(Boolean, nullable=False, default=False)
+    document_parent_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
+    revision_notifiee = Column(Boolean, nullable=False, default=False)
     date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
     date_diffusion = Column(DateTime, nullable=True)
 

@@ -1,11 +1,16 @@
+from datetime import datetime, timedelta
+
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.database import SessionLocal
 from app.core.email import send_email
 from app.core.models import Role, User, UserRole
+from app.core.status_engine import ObjectType, notify
 from app.documentaire.models import (
     AttendanceList,
     AttendanceParticipant,
+    Document,
+    DocumentAssignment,
     Quiz,
     QuizAttempt,
 )
@@ -71,6 +76,69 @@ def relance_evaluations_non_faites():
                             subject="Relance : évaluations non complétées",
                             body=f"Les personnes suivantes n'ont pas encore complété leur évaluation : {noms}",
                         )
+    finally:
+        db.close()
+
+
+@scheduler.scheduled_job("cron", hour=8)
+def detecter_revisions_a_venir():
+    """Chaque jour à 8h : détecte les documents diffusés depuis presque
+    un an (J-15 avant échéance), notifie Qualité et le(s) rédacteur(s)
+    une seule fois par échéance grâce à revision_notifiee."""
+    db = SessionLocal()
+    try:
+        documents = (
+            db.query(Document)
+            .filter(
+                Document.statut == "diffuse",
+                Document.revision_notifiee.is_(False),
+                Document.date_diffusion.isnot(None),
+            )
+            .all()
+        )
+
+        qualite_role = db.query(Role).filter(Role.nom == "qualite").first()
+        qualite_user_ids = []
+        if qualite_role:
+            qualite_user_ids = [
+                ur.user_id
+                for ur in db.query(UserRole).filter(UserRole.role_id == qualite_role.id).all()
+            ]
+
+        for document in documents:
+            echeance = document.date_diffusion + timedelta(days=365)
+            jours_restants = (echeance - datetime.utcnow()).days
+
+            if jours_restants <= 15:
+                for uid in qualite_user_ids:
+                    notify(
+                        db,
+                        user_id=uid,
+                        template_name="a_verifier",
+                        context={"objet": f"Révision à prévoir : {document.intitule}"},
+                        lien=f"/documents/{document.id}",
+                    )
+
+                redacteurs = (
+                    db.query(DocumentAssignment)
+                    .filter(
+                        DocumentAssignment.document_id == document.id,
+                        DocumentAssignment.role_document == "redacteur",
+                    )
+                    .all()
+                )
+                for r in redacteurs:
+                    notify(
+                        db,
+                        user_id=r.user_id,
+                        template_name="a_verifier",
+                        context={"objet": f"Révision à prévoir : {document.intitule}"},
+                        lien=f"/documents/{document.id}",
+                    )
+
+                document.revision_notifiee = True
+
+        db.commit()
     finally:
         db.close()
 

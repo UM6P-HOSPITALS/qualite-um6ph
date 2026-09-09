@@ -11,6 +11,7 @@ class DocumentRequestCreate(BaseModel):
     service_id: int
     responsable_email: EmailStr
     pieces_jointes: list[str] | None = None
+    document_parent_id: int | None = None  
 
 
 class DocumentRequestOut(BaseModel):
