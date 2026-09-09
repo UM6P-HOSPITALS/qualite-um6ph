@@ -158,3 +158,19 @@ class ValidationOut(BaseModel):
 
     class Config:
         from_attributes = True
+class DocumentApplicableOut(BaseModel):
+    id: int
+    intitule: str
+    type_document: str
+    service_nom: str
+    date_diffusion: datetime | None
+    deja_lu: bool
+
+    class Config:
+        from_attributes = True
+
+
+class ReadStatusOut(BaseModel):
+    nb_lecteurs: int
+    nb_total_service: int
+    taux_lecture: float

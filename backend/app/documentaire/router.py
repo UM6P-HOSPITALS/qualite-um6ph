@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -8,11 +9,11 @@ from app.core.models import Role, Service, User, UserRole
 from app.core.permissions import require_permission
 from app.core.security import get_current_user, verify_password
 from app.core.status_engine import ObjectType, change_status, notify
-from app.core.models import Role, Service, User, UserRole
 from app.documentaire.models import (
     Document,
     DocumentAssignment,
     DocumentComment,
+    DocumentRead,
     DocumentRequest,
     DocumentSignature,
     DocumentTemplate,
@@ -23,6 +24,7 @@ from app.documentaire.schemas import (
     CommentCreate,
     CommentOut,
     DocumentAcceptRequest,
+    DocumentApplicableOut,
     DocumentDetailOut,
     DocumentRejectRequest,
     DocumentRequestCreate,
@@ -32,6 +34,7 @@ from app.documentaire.schemas import (
     DocumentTemplateOut,
     DocumentTemplateUpdate,
     DraftSave,
+    ReadStatusOut,
     ServiceOut,
     SignatureConfirm,
     SignatureOut,
@@ -348,6 +351,39 @@ def _check_is_redacteur(db: Session, document_id: int, current_user: User):
             status_code=403,
             detail="Seul un rédacteur assigné à ce document peut le modifier",
         )
+
+
+@router.get("/applicable", response_model=list[DocumentApplicableOut])
+def list_applicable_documents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Documents diffusés, filtrés par les services de l'utilisateur
+    connecté (via ses rôles). Indique aussi s'il l'a déjà lu."""
+    service_ids = {ur.service_id for ur in current_user.roles if ur.service_id is not None}
+
+    query = db.query(Document).filter(Document.statut == "diffuse")
+    if service_ids:
+        query = query.filter(Document.service_id.in_(service_ids))
+
+    documents = query.all()
+
+    read_ids = {
+        r.document_id
+        for r in db.query(DocumentRead).filter(DocumentRead.user_id == current_user.id).all()
+    }
+
+    return [
+        DocumentApplicableOut(
+            id=d.id,
+            intitule=d.intitule,
+            type_document=d.type_document,
+            service_nom=d.service.nom,
+            date_diffusion=d.date_diffusion,
+            deja_lu=d.id in read_ids,
+        )
+        for d in documents
+    ]
 
 
 @router.get("/{document_id}", response_model=DocumentDetailOut)
@@ -742,6 +778,7 @@ def remove_assignment(
     db.delete(assignment)
     db.commit()
 
+
 DIRECTION_ROLES = [
     "direction_generale",
     "direction_medicale",
@@ -962,3 +999,98 @@ def list_validations(
         )
         for v in validations
     ]
+
+
+# ---------- Diffusion et lecture ----------
+
+@router.patch("/{document_id}/publish", response_model=DocumentDetailOut)
+def publish_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _=Depends(require_permission("documentaire", "publish")),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    if document.statut != "valide":
+        raise HTTPException(status_code=400, detail="Le document doit être validé avant diffusion")
+
+    ancien_statut = document.statut
+    document.statut = "diffuse"
+    document.date_diffusion = datetime.utcnow()
+    db.commit()
+
+    change_status(
+        db,
+        object_type=ObjectType.document,
+        object_id=document.id,
+        ancien_statut=ancien_statut,
+        nouveau_statut="diffuse",
+        user_id=current_user.id,
+    )
+
+    concerned_user_ids = {
+        ur.user_id
+        for ur in db.query(UserRole).filter(UserRole.service_id == document.service_id).all()
+    }
+    for uid in concerned_user_ids:
+        notify(
+            db,
+            user_id=uid,
+            template_name="nouvelle_demande",
+            context={"objet": f"Nouveau document diffusé : {document.intitule}"},
+            lien=f"/documents/{document.id}/lire",
+        )
+
+    db.refresh(document)
+    return document
+
+
+@router.post("/{document_id}/mark-read", status_code=201)
+def mark_document_read(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    existing = (
+        db.query(DocumentRead)
+        .filter(DocumentRead.document_id == document_id, DocumentRead.user_id == current_user.id)
+        .first()
+    )
+    if existing:
+        return {"message": "Déjà marqué comme lu", "date": existing.date}
+
+    read = DocumentRead(document_id=document_id, user_id=current_user.id)
+    db.add(read)
+    db.commit()
+    return {"message": "Marqué comme lu"}
+
+
+@router.get("/{document_id}/read-status", response_model=ReadStatusOut)
+def get_read_status(
+    document_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("documentaire", "view_stats")),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    nb_lecteurs = (
+        db.query(DocumentRead).filter(DocumentRead.document_id == document_id).count()
+    )
+    nb_total_service = (
+        db.query(UserRole.user_id)
+        .filter(UserRole.service_id == document.service_id)
+        .distinct()
+        .count()
+    )
+    taux = (nb_lecteurs / nb_total_service) if nb_total_service > 0 else 0.0
+
+    return ReadStatusOut(nb_lecteurs=nb_lecteurs, nb_total_service=nb_total_service, taux_lecture=round(taux, 2))

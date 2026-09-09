@@ -109,6 +109,17 @@ export default function VerificationPage() {
     setError(err.message);
   }
 }
+async function handlePublish() {
+  setError("");
+  setMessage("");
+  try {
+    await apiFetch(`/documents/${documentId}/publish`, { method: "PATCH" });
+    setMessage("Document diffusé.");
+    load();
+  } catch (err: any) {
+    setError(err.message);
+  }
+}
 
   if (!document) return <div>Chargement...</div>;
 
@@ -201,6 +212,11 @@ export default function VerificationPage() {
       Soumettre à validation
     </button>
   )}
+  {document.statut === "valide" && (
+  <button className="btn-primary" onClick={handlePublish}>
+    Publier le document
+  </button>
+)}
   </div>
 
         {showSignPanel && (

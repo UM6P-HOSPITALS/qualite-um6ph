@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -20,6 +20,7 @@ class Document(Base):
     contenu = Column(Text, nullable=True)
     verrouille = Column(Boolean, nullable=False, default=False)
     date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
+    date_diffusion = Column(DateTime, nullable=True)
 
     service = relationship("Service")
     assignments = relationship("DocumentAssignment", back_populates="document")
@@ -95,9 +96,6 @@ class DocumentSignature(Base):
 
 
 class ValidationCircuit(Base):
-    """Config : pour un type de document donné, quelles directions doivent
-    valider. Ex: type_document='procedure', role_direction='direction_medicale'."""
-
     __tablename__ = "validation_circuits"
 
     id = Column(Integer, primary_key=True)
@@ -106,8 +104,6 @@ class ValidationCircuit(Base):
 
 
 class DocumentValidation(Base):
-    """Une signature de validation par une direction, sur un document précis."""
-
     __tablename__ = "document_validations"
 
     id = Column(Integer, primary_key=True)
@@ -115,6 +111,22 @@ class DocumentValidation(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     role_direction = Column(String(50), nullable=False)
     nom_signature = Column(String(150), nullable=False)
+    date = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    document = relationship("Document")
+    user = relationship("User")
+
+
+class DocumentRead(Base):
+    """Accusé de lecture : une ligne par (document, utilisateur). Rouvrir
+    le même document ne crée pas de doublon (upsert dans l'endpoint)."""
+
+    __tablename__ = "document_reads"
+    __table_args__ = (UniqueConstraint("document_id", "user_id", name="uq_document_read_user"),)
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     date = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     document = relationship("Document")
