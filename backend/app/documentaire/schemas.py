@@ -174,3 +174,84 @@ class ReadStatusOut(BaseModel):
     nb_lecteurs: int
     nb_total_service: int
     taux_lecture: float
+
+class DocumentSearchResultOut(BaseModel):
+    id: int
+    intitule: str
+    type_document: str
+    service_nom: str
+    statut: str
+    auteur_email: str | None
+
+    class Config:
+        from_attributes = True
+class TrainingCapsuleCreate(BaseModel):
+    titre: str
+    url_video: str
+
+
+class TrainingCapsuleOut(BaseModel):
+    id: int
+    titre: str
+    url_video: str
+    date_creation: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class QuizQuestionCreate(BaseModel):
+    question: str
+    choix: list[str]
+    bonne_reponse_index: int
+
+
+class QuizCreate(BaseModel):
+    titre: str
+    questions: list[QuizQuestionCreate]
+
+
+class QuizQuestionOut(BaseModel):
+    id: int
+    question: str
+    choix: list[str]
+
+    class Config:
+        from_attributes = True
+
+
+class QuizOut(BaseModel):
+    id: int
+    titre: str
+    questions: list[QuizQuestionOut]
+
+
+class QuizAnswerSubmit(BaseModel):
+    reponses: list[int]  # index choisi, dans l'ordre des questions
+
+
+class QuizAttemptOut(BaseModel):
+    id: int
+    score: int
+    total: int
+    date: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class QuizResultAnonymeOut(BaseModel):
+    """Résultat agrégé, sans identité — pour Qualité."""
+    score: int
+    total: int
+    date: datetime
+
+
+class AttendanceListCreate(BaseModel):
+    participant_emails: list[str]
+
+
+class AttendanceListOut(BaseModel):
+    id: int
+    date_creation: datetime
+    nb_participants: int

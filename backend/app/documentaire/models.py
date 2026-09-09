@@ -131,3 +131,84 @@ class DocumentRead(Base):
 
     document = relationship("Document")
     user = relationship("User")
+class TrainingCapsule(Base):
+    """Capsule vidéo de sensibilisation, liée à une procédure (document)."""
+
+    __tablename__ = "training_capsules"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    titre = Column(String(255), nullable=False)
+    url_video = Column(String(500), nullable=False)
+    date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    document = relationship("Document")
+
+
+class CapsuleView(Base):
+    """Traçabilité : qui a visionné quelle capsule, et quand."""
+
+    __tablename__ = "capsule_views"
+    __table_args__ = (UniqueConstraint("capsule_id", "user_id", name="uq_capsule_view_user"),)
+
+    id = Column(Integer, primary_key=True)
+    capsule_id = Column(Integer, ForeignKey("training_capsules.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    date = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Quiz(Base):
+    """Un quiz par procédure, pour évaluer l'efficacité de la formation."""
+
+    __tablename__ = "quizzes"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    titre = Column(String(255), nullable=False)
+    date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    document = relationship("Document")
+
+
+class QuizQuestion(Base):
+    __tablename__ = "quiz_questions"
+
+    id = Column(Integer, primary_key=True)
+    quiz_id = Column(Integer, ForeignKey("quizzes.id"), nullable=False)
+    question = Column(Text, nullable=False)
+    choix = Column(JSON, nullable=False)  # liste de textes de réponses
+    bonne_reponse_index = Column(Integer, nullable=False)
+
+
+class QuizAttempt(Base):
+    """Un résultat d'évaluation : une tentative par utilisateur par quiz."""
+
+    __tablename__ = "quiz_attempts"
+    __table_args__ = (UniqueConstraint("quiz_id", "user_id", name="uq_quiz_attempt_user"),)
+
+    id = Column(Integer, primary_key=True)
+    quiz_id = Column(Integer, ForeignKey("quizzes.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    score = Column(Integer, nullable=False)  # nombre de bonnes réponses
+    total = Column(Integer, nullable=False)
+    date = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AttendanceList(Base):
+    """Liste de présence à une formation, liée à une procédure."""
+
+    __tablename__ = "attendance_lists"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    document = relationship("Document")
+
+
+class AttendanceParticipant(Base):
+    __tablename__ = "attendance_participants"
+
+    id = Column(Integer, primary_key=True)
+    attendance_list_id = Column(Integer, ForeignKey("attendance_lists.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)

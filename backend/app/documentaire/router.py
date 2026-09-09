@@ -10,6 +10,9 @@ from app.core.permissions import require_permission
 from app.core.security import get_current_user, verify_password
 from app.core.status_engine import ObjectType, change_status, notify
 from app.documentaire.models import (
+    AttendanceList,
+    AttendanceParticipant,
+    CapsuleView,
     Document,
     DocumentAssignment,
     DocumentComment,
@@ -18,9 +21,15 @@ from app.documentaire.models import (
     DocumentSignature,
     DocumentTemplate,
     DocumentValidation,
+    Quiz,
+    QuizAttempt,
+    QuizQuestion,
+    TrainingCapsule,
     ValidationCircuit,
 )
 from app.documentaire.schemas import (
+    AttendanceListCreate,
+    AttendanceListOut,
     CommentCreate,
     CommentOut,
     DocumentAcceptRequest,
@@ -30,14 +39,23 @@ from app.documentaire.schemas import (
     DocumentRequestCreate,
     DocumentRequestOut,
     DocumentRequestPendingOut,
+    DocumentSearchResultOut,
     DocumentTemplateCreate,
     DocumentTemplateOut,
     DocumentTemplateUpdate,
     DraftSave,
+    QuizAnswerSubmit,
+    QuizAttemptOut,
+    QuizCreate,
+    QuizOut,
+    QuizQuestionOut,
+    QuizResultAnonymeOut,
     ReadStatusOut,
     ServiceOut,
     SignatureConfirm,
     SignatureOut,
+    TrainingCapsuleCreate,
+    TrainingCapsuleOut,
     ValidationCircuitCreate,
     ValidationCircuitOut,
     ValidationConfirm,
@@ -384,6 +402,76 @@ def list_applicable_documents(
         )
         for d in documents
     ]
+
+
+@router.get("/search", response_model=list[DocumentSearchResultOut])
+def search_documents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    keyword: str | None = None,
+    type_document: str | None = None,
+    service_id: int | None = None,
+    auteur_email: str | None = None,
+):
+    """Recherche multicritère. Seuls les documents diffusés sont visibles
+    par défaut, sauf pour Qualité qui voit aussi les autres statuts.
+    La confidentialité restreinte/confidentielle est filtrée : seul un
+    utilisateur ayant un rôle sur le service concerné y accède."""
+    is_qualite = (
+        db.query(Role)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .filter(UserRole.user_id == current_user.id, Role.nom == "qualite")
+        .first()
+        is not None
+    )
+
+    query = db.query(Document)
+
+    if not is_qualite:
+        query = query.filter(Document.statut == "diffuse")
+
+    if keyword:
+        query = query.filter(Document.intitule.ilike(f"%{keyword}%"))
+    if type_document:
+        query = query.filter(Document.type_document == type_document)
+    if service_id:
+        query = query.filter(Document.service_id == service_id)
+
+    documents = query.all()
+
+    user_service_ids = {ur.service_id for ur in current_user.roles if ur.service_id is not None}
+
+    results = []
+    for d in documents:
+        if d.confidentialite in ("restreint", "confidentiel") and not is_qualite:
+            if d.service_id not in user_service_ids:
+                continue
+
+        redacteur_assignment = (
+            db.query(DocumentAssignment)
+            .filter(
+                DocumentAssignment.document_id == d.id,
+                DocumentAssignment.role_document == "redacteur",
+            )
+            .first()
+        )
+        doc_auteur_email = redacteur_assignment.user.email if redacteur_assignment else None
+
+        if auteur_email and doc_auteur_email != auteur_email:
+            continue
+
+        results.append(
+            DocumentSearchResultOut(
+                id=d.id,
+                intitule=d.intitule,
+                type_document=d.type_document,
+                service_nom=d.service.nom,
+                statut=d.statut,
+                auteur_email=doc_auteur_email,
+            )
+        )
+
+    return results
 
 
 @router.get("/{document_id}", response_model=DocumentDetailOut)
@@ -1094,3 +1182,220 @@ def get_read_status(
     taux = (nb_lecteurs / nb_total_service) if nb_total_service > 0 else 0.0
 
     return ReadStatusOut(nb_lecteurs=nb_lecteurs, nb_total_service=nb_total_service, taux_lecture=round(taux, 2))
+
+
+# ---------- Capsules vidéo ----------
+
+@router.get("/{document_id}/capsules", response_model=list[TrainingCapsuleOut])
+def list_capsules(
+    document_id: int,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+):
+    return db.query(TrainingCapsule).filter(TrainingCapsule.document_id == document_id).all()
+
+
+@router.post("/{document_id}/capsules", response_model=TrainingCapsuleOut, status_code=201)
+def create_capsule(
+    document_id: int,
+    payload: TrainingCapsuleCreate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("documentaire", "manage_training")),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    capsule = TrainingCapsule(document_id=document_id, titre=payload.titre, url_video=payload.url_video)
+    db.add(capsule)
+    db.commit()
+    db.refresh(capsule)
+    return capsule
+
+
+@router.post("/capsules/{capsule_id}/view", status_code=201)
+def mark_capsule_viewed(
+    capsule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    capsule = db.query(TrainingCapsule).filter(TrainingCapsule.id == capsule_id).first()
+    if not capsule:
+        raise HTTPException(status_code=404, detail="Capsule introuvable")
+
+    existing = (
+        db.query(CapsuleView)
+        .filter(CapsuleView.capsule_id == capsule_id, CapsuleView.user_id == current_user.id)
+        .first()
+    )
+    if existing:
+        return {"message": "Déjà visionnée"}
+
+    view = CapsuleView(capsule_id=capsule_id, user_id=current_user.id)
+    db.add(view)
+    db.commit()
+    return {"message": "Visionnage enregistré"}
+
+
+# ---------- Quiz ----------
+
+@router.post("/{document_id}/quiz", response_model=QuizOut, status_code=201)
+def create_quiz(
+    document_id: int,
+    payload: QuizCreate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("documentaire", "manage_training")),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    quiz = Quiz(document_id=document_id, titre=payload.titre)
+    db.add(quiz)
+    db.commit()
+    db.refresh(quiz)
+
+    questions = []
+    for q in payload.questions:
+        question = QuizQuestion(
+            quiz_id=quiz.id,
+            question=q.question,
+            choix=q.choix,
+            bonne_reponse_index=q.bonne_reponse_index,
+        )
+        db.add(question)
+        questions.append(question)
+    db.commit()
+    for q in questions:
+        db.refresh(q)
+
+    return QuizOut(
+        id=quiz.id,
+        titre=quiz.titre,
+        questions=[QuizQuestionOut(id=q.id, question=q.question, choix=q.choix) for q in questions],
+    )
+
+
+@router.get("/{document_id}/quiz", response_model=QuizOut)
+def get_quiz(
+    document_id: int,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+):
+    quiz = db.query(Quiz).filter(Quiz.document_id == document_id).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Aucun quiz configuré pour ce document")
+
+    questions = db.query(QuizQuestion).filter(QuizQuestion.quiz_id == quiz.id).all()
+    return QuizOut(
+        id=quiz.id,
+        titre=quiz.titre,
+        questions=[QuizQuestionOut(id=q.id, question=q.question, choix=q.choix) for q in questions],
+    )
+
+
+@router.post("/quiz/{quiz_id}/attempt", response_model=QuizAttemptOut, status_code=201)
+def submit_quiz_attempt(
+    quiz_id: int,
+    payload: QuizAnswerSubmit,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz introuvable")
+
+    already = (
+        db.query(QuizAttempt)
+        .filter(QuizAttempt.quiz_id == quiz_id, QuizAttempt.user_id == current_user.id)
+        .first()
+    )
+    if already:
+        raise HTTPException(status_code=400, detail="Vous avez déjà passé ce quiz")
+
+    questions = (
+        db.query(QuizQuestion)
+        .filter(QuizQuestion.quiz_id == quiz_id)
+        .order_by(QuizQuestion.id)
+        .all()
+    )
+    if len(payload.reponses) != len(questions):
+        raise HTTPException(status_code=400, detail="Nombre de réponses incohérent avec le nombre de questions")
+
+    score = sum(
+        1 for q, rep in zip(questions, payload.reponses) if rep == q.bonne_reponse_index
+    )
+
+    attempt = QuizAttempt(quiz_id=quiz_id, user_id=current_user.id, score=score, total=len(questions))
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+
+    return QuizAttemptOut(
+        id=attempt.id,
+        score=attempt.score,
+        total=attempt.total,
+        date=attempt.date,
+    )
+
+
+@router.get("/quiz/{quiz_id}/results", response_model=list[QuizResultAnonymeOut])
+def list_quiz_results(
+    quiz_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("documentaire", "view_stats")),
+):
+    """Résultats agrégés, sans identité des répondants — Qualité voit la
+    distribution des scores, pas qui a répondu quoi."""
+    attempts = db.query(QuizAttempt).filter(QuizAttempt.quiz_id == quiz_id).all()
+    return [
+        QuizResultAnonymeOut(score=a.score, total=a.total, date=a.date)
+        for a in attempts
+    ]
+
+
+# ---------- Listes de présence ----------
+
+@router.post("/{document_id}/attendance-lists", response_model=AttendanceListOut, status_code=201)
+def create_attendance_list(
+    document_id: int,
+    payload: AttendanceListCreate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("documentaire", "manage_training")),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    quiz = db.query(Quiz).filter(Quiz.document_id == document_id).first()
+    if not quiz:
+        raise HTTPException(
+            status_code=400,
+            detail="Aucun quiz configuré pour ce document — crée le quiz avant la liste de présence",
+        )
+
+    attendance = AttendanceList(document_id=document_id)
+    db.add(attendance)
+    db.commit()
+    db.refresh(attendance)
+
+    nb = 0
+    for email in payload.participant_emails:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            continue
+        db.add(AttendanceParticipant(attendance_list_id=attendance.id, user_id=user.id))
+        nb += 1
+
+        # Envoi automatique du quiz à chaque participant
+        notify(
+            db,
+            user_id=user.id,
+            template_name="a_verifier",
+            context={"objet": f"Quiz à compléter : {document.intitule}"},
+            lien=f"/documents/{document_id}/quiz",
+        )
+
+    db.commit()
+
+    return AttendanceListOut(id=attendance.id, date_creation=attendance.date_creation, nb_participants=nb)
