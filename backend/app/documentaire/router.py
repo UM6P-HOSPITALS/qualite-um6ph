@@ -1,5 +1,5 @@
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -32,6 +32,7 @@ from app.documentaire.schemas import (
     AttendanceListOut,
     CommentCreate,
     CommentOut,
+    DashboardOut,
     DocumentAcceptRequest,
     DocumentApplicableOut,
     DocumentDetailOut,
@@ -482,6 +483,62 @@ def _is_qualite(db: Session, current_user: User) -> bool:
         .filter(UserRole.user_id == current_user.id, Role.nom == "qualite")
         .first()
         is not None
+    )
+
+
+# ---------- Tableau de bord (Qualité) ----------
+# Déclaré avant /{document_id} : sinon cette route générique intercepte
+# "/documents/dashboard" (segment non numérique) et FastAPI répond 422
+# au lieu d'atteindre cet endpoint.
+
+@router.get("/dashboard", response_model=DashboardOut)
+def get_dashboard(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("documentaire", "view_stats")),
+):
+    docs_en_attente_validation = (
+        db.query(Document).filter(Document.statut == "en_attente_validation").count()
+    )
+
+    seuil_revision = datetime.utcnow() - timedelta(days=350)
+    docs_a_reviser_bientot = (
+        db.query(Document)
+        .filter(
+            Document.statut == "diffuse",
+            Document.date_diffusion.isnot(None),
+            Document.date_diffusion <= seuil_revision,
+        )
+        .count()
+    )
+
+    docs_diffuses = db.query(Document).filter(Document.statut.in_(["diffuse", "obsolete"])).all()
+    taux_total = 0.0
+    nb_docs_avec_lecteurs = 0
+    for d in docs_diffuses:
+        nb_lecteurs = db.query(DocumentRead).filter(DocumentRead.document_id == d.id).count()
+        nb_total_service = (
+            db.query(UserRole.user_id)
+            .filter(UserRole.service_id == d.service_id)
+            .distinct()
+            .count()
+        )
+        if nb_total_service > 0:
+            taux_total += nb_lecteurs / nb_total_service
+            nb_docs_avec_lecteurs += 1
+    taux_lecture_moyen = (taux_total / nb_docs_avec_lecteurs) if nb_docs_avec_lecteurs > 0 else 0.0
+
+    attempts = db.query(QuizAttempt).all()
+    score_moyen_evaluations = (
+        sum(a.score / a.total for a in attempts if a.total > 0) / len(attempts)
+        if attempts
+        else 0.0
+    )
+
+    return DashboardOut(
+        docs_en_attente_validation=docs_en_attente_validation,
+        docs_a_reviser_bientot=docs_a_reviser_bientot,
+        taux_lecture_moyen=round(taux_lecture_moyen, 2),
+        score_moyen_evaluations=round(score_moyen_evaluations, 2),
     )
 
 

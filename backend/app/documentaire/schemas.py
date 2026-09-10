@@ -256,3 +256,9 @@ class AttendanceListOut(BaseModel):
     id: int
     date_creation: datetime
     nb_participants: int
+
+class DashboardOut(BaseModel):
+    docs_en_attente_validation: int
+    docs_a_reviser_bientot: int
+    taux_lecture_moyen: float
+    score_moyen_evaluations: float
