@@ -6,10 +6,17 @@ from app.core.config import settings
 from app.core.roles_router import router as roles_router
 from app.core.scheduler import start_scheduler
 from app.core.status_engine import router as history_router
+from app.evenements.router import router as evenements_router
 
 from app.documentaire.router import router as documentaire_router
+from fastapi.staticfiles import StaticFiles
+
+from app.core.uploads_router import router as uploads_router
 
 app = FastAPI(title="QUALITE-UM6PH — Plateforme Qualité UM6P Hospitals")
+import os
+os.makedirs("uploaded_files", exist_ok=True)
+app.mount("/uploaded_files", StaticFiles(directory="uploaded_files"), name="uploaded_files")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,6 +30,8 @@ app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(roles_router, prefix="/admin", tags=["admin"])
 app.include_router(history_router, prefix="/history", tags=["history"])
 app.include_router(documentaire_router, prefix="/documents", tags=["documentaire"])
+app.include_router(evenements_router, prefix="/events", tags=["evenements"])
+app.include_router(uploads_router, tags=["uploads"])
 
 
 @app.on_event("startup")
