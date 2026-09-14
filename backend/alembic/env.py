@@ -17,6 +17,7 @@ from app.core.config import settings  # noqa: E402
 from app.core.database import Base  # noqa: E402
 from app.core import models  # noqa: E402, F401 -- important : enregistre les tables
 from app.evenements import models as evenements_models  # noqa: E402, F401
+from app.audits import models as audits_models  # noqa: E402, F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

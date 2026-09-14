@@ -9,6 +9,7 @@ from app.core.status_engine import router as history_router
 from app.evenements.router import router as evenements_router
 
 from app.documentaire.router import router as documentaire_router
+from app.audits.router import router as audits_router
 from fastapi.staticfiles import StaticFiles
 
 from app.core.uploads_router import router as uploads_router
@@ -32,6 +33,7 @@ app.include_router(history_router, prefix="/history", tags=["history"])
 app.include_router(documentaire_router, prefix="/documents", tags=["documentaire"])
 app.include_router(evenements_router, prefix="/events", tags=["evenements"])
 app.include_router(uploads_router, tags=["uploads"])
+app.include_router(audits_router, prefix="/audits", tags=["audits"])
 
 
 @app.on_event("startup")
