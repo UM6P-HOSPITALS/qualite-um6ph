@@ -11,13 +11,24 @@ class AdverseEvent(Base):
 
     id = Column(Integer, primary_key=True)
     numero_suivi = Column(String(30), unique=True, nullable=False)
+
     date_evenement = Column(DateTime, nullable=False)
     lieu = Column(String(255), nullable=False)
     service_id = Column(Integer, ForeignKey("services.id"), nullable=False)
+    professionnel_identifiant = Column(String(255), nullable=True)
+    contact_professionnel = Column(String(255), nullable=True)
+
+    categorie = Column(JSON, nullable=True)
     description = Column(Text, nullable=False)
-    personnes_impliquees = Column(Text, nullable=True)
-    gravite = Column(String(20), nullable=False)  # "mineure", "majeure", "critique"
+    gravite = Column(String(20), nullable=False)
+
     actions_immediates = Column(Text, nullable=True)
+
+    signalement_effectue_a = Column(JSON, nullable=True)
+    visa_major = Column(String(150), nullable=True)
+    date_completion_major = Column(DateTime, nullable=True)
+
+    personnes_impliquees = Column(Text, nullable=True)
     declarant_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     pieces_jointes = Column(JSON, nullable=True)
     statut = Column(String(50), nullable=False, default="declare")
@@ -25,6 +36,7 @@ class AdverseEvent(Base):
 
     service = relationship("Service")
     declarant = relationship("User")
+    
 class AdverseEventAnalyst(Base):
     """Un analyste désigné par Qualité pour un événement précis — pas de
     rôle fixe, désignation au cas par cas."""
@@ -50,3 +62,21 @@ class AdverseEventAnalysisEntry(Base):
     date = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user = relationship("User")
+
+class AdverseEventAction(Base):
+    """Une action corrective/préventive associée à un événement indésirable."""
+
+    __tablename__ = "adverse_event_actions"
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey("adverse_events.id"), nullable=False)
+    description = Column(Text, nullable=False)
+    responsable_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    echeance = Column(DateTime, nullable=False)
+    priorite = Column(String(20), nullable=False)  # "basse", "moyenne", "haute"
+    criticite = Column(String(20), nullable=False)  # "mineure", "majeure", "critique"
+    statut = Column(String(20), nullable=False, default="a_faire")  # "a_faire", "en_cours", "realisee"
+    date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    event = relationship("AdverseEvent")
+    responsable = relationship("User")

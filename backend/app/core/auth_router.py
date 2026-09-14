@@ -51,6 +51,19 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
     return Token(access_token=token)
 
 
-@router.get("/me", response_model=UserOut)
+@router.get("/me")
 def me(current_user: User = Depends(get_current_user)):
-    return current_user
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "nom": current_user.nom,
+        "prenom": current_user.prenom,
+        "actif": current_user.actif,
+        "roles": [
+            {
+                "role": ur.role.nom,
+                "service": ur.service.nom if ur.service else None,
+            }
+            for ur in current_user.roles
+        ],
+    }
