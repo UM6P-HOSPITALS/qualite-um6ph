@@ -19,6 +19,8 @@ from app.evenements.schemas import (
     AnalysisEntryOut,
     AnalystOut,
     AssignAnalystsRequest,
+    DashboardEIOut,
+    EfficacyEvaluationRequest,
     MajorCompletionRequest,
 )
 
@@ -73,9 +75,13 @@ def _event_to_out(event: AdverseEvent) -> AdverseEventOut:
 @router.get("/", response_model=list[AdverseEventOut])
 def list_events(
     db: Session = Depends(get_db),
+    include_cloture: bool = False,
     _current_user: User = Depends(get_current_user),
 ):
-    events = db.query(AdverseEvent).order_by(AdverseEvent.date_declaration.desc()).all()
+    query = db.query(AdverseEvent)
+    if not include_cloture:
+        query = query.filter(AdverseEvent.statut != "cloture")
+    events = query.order_by(AdverseEvent.date_declaration.desc()).all()
     return [_event_to_out(e) for e in events]
 
 
@@ -170,6 +176,140 @@ def _check_can_analyze(db: Session, event_id: int, current_user: User):
     )
 
 
+@router.get("/dashboard", response_model=DashboardEIOut)
+def get_dashboard(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("evenements", "view_stats")),
+):
+    all_events = db.query(AdverseEvent).all()
+    total = len(all_events)
+
+    cloture_events = [e for e in all_events if e.statut == "cloture"]
+    taux_cloture = (len(cloture_events) / total) if total > 0 else 0.0
+
+    delais = [
+        (e.date_cloture - e.date_declaration).days
+        for e in cloture_events
+        if e.date_cloture is not None
+    ]
+    delai_moyen = (sum(delais) / len(delais)) if delais else 0.0
+
+    repartition_gravite: dict[str, int] = {}
+    for e in all_events:
+        repartition_gravite[e.gravite] = repartition_gravite.get(e.gravite, 0) + 1
+
+    repartition_par_service: dict[str, int] = {}
+    for e in all_events:
+        nom = e.service.nom
+        repartition_par_service[nom] = repartition_par_service.get(nom, 0) + 1
+
+    tendance: dict[str, int] = {}
+    for e in all_events:
+        key = e.date_declaration.strftime("%Y-%m")
+        tendance[key] = tendance.get(key, 0) + 1
+    tendance_mensuelle = [{"mois": k, "count": v} for k, v in sorted(tendance.items())]
+
+    return DashboardEIOut(
+        total_evenements=total,
+        taux_cloture=round(taux_cloture, 2),
+        delai_moyen_jours=round(delai_moyen, 1),
+        repartition_gravite=repartition_gravite,
+        repartition_par_service=repartition_par_service,
+        tendance_mensuelle=tendance_mensuelle,
+    )
+
+
+@router.get("/export/excel")
+def export_excel(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("evenements", "view_stats")),
+):
+    from io import BytesIO
+
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+
+    events = db.query(AdverseEvent).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Événements indésirables"
+    ws.append(["Numéro", "Date événement", "Service", "Gravité", "Statut", "Date déclaration", "Date clôture"])
+
+    for e in events:
+        ws.append([
+            e.numero_suivi,
+            e.date_evenement.strftime("%Y-%m-%d %H:%M"),
+            e.service.nom,
+            e.gravite,
+            e.statut,
+            e.date_declaration.strftime("%Y-%m-%d"),
+            e.date_cloture.strftime("%Y-%m-%d") if e.date_cloture else "",
+        ])
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=evenements_indesirables.xlsx"},
+    )
+
+
+@router.get("/export/pdf")
+def export_pdf(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("evenements", "view_stats")),
+):
+    from io import BytesIO
+
+    from fastapi.responses import StreamingResponse
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    events = db.query(AdverseEvent).all()
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4))
+    styles = getSampleStyleSheet()
+    elements = [Paragraph("Rapport des événements indésirables", styles["Title"]), Spacer(1, 12)]
+
+    data = [["Numéro", "Date événement", "Service", "Gravité", "Statut", "Déclaration", "Clôture"]]
+    for e in events:
+        data.append([
+            e.numero_suivi,
+            e.date_evenement.strftime("%Y-%m-%d %H:%M"),
+            e.service.nom,
+            e.gravite,
+            e.statut,
+            e.date_declaration.strftime("%Y-%m-%d"),
+            e.date_cloture.strftime("%Y-%m-%d") if e.date_cloture else "-",
+        ])
+
+    table = Table(data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#00543f")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f5")]),
+    ]))
+    elements.append(table)
+
+    doc.build(elements)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=evenements_indesirables.pdf"},
+    )
+
+
 @router.get("/{event_id}", response_model=AdverseEventOut)
 def get_event(
     event_id: int,
@@ -190,9 +330,6 @@ def complete_by_major(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Section 'À renseigner par le major du service' — réservé à Qualité
-    ou au responsable de service concerné, faute d'un rôle 'major' dédié
-    dans le système actuel."""
     event = db.query(AdverseEvent).filter(AdverseEvent.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Événement introuvable")
@@ -492,3 +629,63 @@ def update_action_status(
         statut=action.statut,
         date_creation=action.date_creation,
     )
+
+
+@router.patch("/{event_id}/evaluate-efficacite", response_model=AdverseEventOut)
+def evaluate_efficacite(
+    event_id: int,
+    payload: EfficacyEvaluationRequest,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission("evenements", "manage_analysis")),
+):
+    event = db.query(AdverseEvent).filter(AdverseEvent.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Événement introuvable")
+
+    if event.statut != "actions_definies":
+        raise HTTPException(status_code=400, detail="L'événement doit être au statut 'actions_definies'")
+
+    event.evaluation_efficacite = payload.contenu
+    event.efficacite_evaluee = True
+    db.commit()
+    db.refresh(event)
+
+    return _event_to_out(event)
+
+
+@router.patch("/{event_id}/close", response_model=AdverseEventOut)
+def close_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _=Depends(require_permission("evenements", "manage_analysis")),
+):
+    event = db.query(AdverseEvent).filter(AdverseEvent.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Événement introuvable")
+
+    if not event.efficacite_evaluee:
+        raise HTTPException(
+            status_code=400,
+            detail="L'évaluation d'efficacité doit être faite avant la clôture",
+        )
+
+    if event.statut != "actions_definies":
+        raise HTTPException(status_code=400, detail="L'événement doit être au statut 'actions_definies'")
+
+    ancien_statut = event.statut
+    event.statut = "cloture"
+    event.date_cloture = datetime.utcnow()
+    db.commit()
+
+    change_status(
+        db,
+        object_type=ObjectType.event,
+        object_id=event.id,
+        ancien_statut=ancien_statut,
+        nouveau_statut="cloture",
+        user_id=current_user.id,
+    )
+
+    db.refresh(event)
+    return _event_to_out(event)

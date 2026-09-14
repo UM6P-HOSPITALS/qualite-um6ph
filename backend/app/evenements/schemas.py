@@ -93,3 +93,15 @@ class ActionOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class EfficacyEvaluationRequest(BaseModel):
+    contenu: str
+
+
+class DashboardEIOut(BaseModel):
+    total_evenements: int
+    taux_cloture: float
+    delai_moyen_jours: float
+    repartition_gravite: dict
+    repartition_par_service: dict
+    tendance_mensuelle: list

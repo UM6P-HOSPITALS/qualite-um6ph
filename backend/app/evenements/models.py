@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -28,6 +28,10 @@ class AdverseEvent(Base):
     visa_major = Column(String(150), nullable=True)
     date_completion_major = Column(DateTime, nullable=True)
 
+    efficacite_evaluee = Column(Boolean, nullable=False, default=False)
+    evaluation_efficacite = Column(Text, nullable=True)
+    date_cloture = Column(DateTime, nullable=True)
+
     personnes_impliquees = Column(Text, nullable=True)
     declarant_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     pieces_jointes = Column(JSON, nullable=True)
@@ -36,7 +40,8 @@ class AdverseEvent(Base):
 
     service = relationship("Service")
     declarant = relationship("User")
-    
+
+
 class AdverseEventAnalyst(Base):
     """Un analyste désigné par Qualité pour un événement précis — pas de
     rôle fixe, désignation au cas par cas."""
@@ -63,6 +68,7 @@ class AdverseEventAnalysisEntry(Base):
 
     user = relationship("User")
 
+
 class AdverseEventAction(Base):
     """Une action corrective/préventive associée à un événement indésirable."""
 
@@ -73,9 +79,9 @@ class AdverseEventAction(Base):
     description = Column(Text, nullable=False)
     responsable_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     echeance = Column(DateTime, nullable=False)
-    priorite = Column(String(20), nullable=False)  # "basse", "moyenne", "haute"
-    criticite = Column(String(20), nullable=False)  # "mineure", "majeure", "critique"
-    statut = Column(String(20), nullable=False, default="a_faire")  # "a_faire", "en_cours", "realisee"
+    priorite = Column(String(20), nullable=False)
+    criticite = Column(String(20), nullable=False)
+    statut = Column(String(20), nullable=False, default="a_faire")
     date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     event = relationship("AdverseEvent")
