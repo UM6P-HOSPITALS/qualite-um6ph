@@ -13,6 +13,7 @@ class Document(Base):
     intitule = Column(String(255), nullable=False)
     type_document = Column(String(100), nullable=False)
     service_id = Column(Integer, ForeignKey("services.id"), nullable=False)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=True)
     statut = Column(String(50), nullable=False, default="en_attente_examen")
     version_courante = Column(Integer, nullable=False, default=1)
     perimetre = Column(Text, nullable=True)
@@ -25,6 +26,7 @@ class Document(Base):
     date_diffusion = Column(DateTime, nullable=True)
 
     service = relationship("Service")
+    site = relationship("Site")
     assignments = relationship("DocumentAssignment", back_populates="document")
 
 

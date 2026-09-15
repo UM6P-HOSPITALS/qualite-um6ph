@@ -15,6 +15,7 @@ class AdverseEvent(Base):
     date_evenement = Column(DateTime, nullable=False)
     lieu = Column(String(255), nullable=False)
     service_id = Column(Integer, ForeignKey("services.id"), nullable=False)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=True)
     professionnel_identifiant = Column(String(255), nullable=True)
     contact_professionnel = Column(String(255), nullable=True)
 
@@ -39,6 +40,7 @@ class AdverseEvent(Base):
     date_declaration = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     service = relationship("Service")
+    site = relationship("Site")
     declarant = relationship("User")
 
 
