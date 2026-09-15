@@ -10,8 +10,8 @@ from app.core.models import Role, Service, Site
 
 SITES = [
     "Hôpital Général",
-    "Hôpital de Réhabilitation",
-    "Hôpital de Gériatrie",
+    "Centre de réadaptation",
+    "Centre de Gériatrie",
 ]
 
 ROLES = [

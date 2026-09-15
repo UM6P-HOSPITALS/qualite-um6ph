@@ -12,6 +12,7 @@ class AuditProgram(Base):
     id = Column(Integer, primary_key=True)
     annee = Column(Integer, nullable=False)
     service_id = Column(Integer, ForeignKey("services.id"), nullable=True)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=True)
     processus = Column(String(255), nullable=True)
     thematique = Column(String(255), nullable=True)
     responsable_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -24,6 +25,7 @@ class AuditProgram(Base):
     date_cloture = Column(DateTime, nullable=True)
 
     service = relationship("Service")
+    site = relationship("Site")
     responsable = relationship("User")
 
 

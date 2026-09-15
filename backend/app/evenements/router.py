@@ -50,12 +50,15 @@ def _generate_numero_suivi(db: Session) -> str:
 
 
 def _event_to_out(event: AdverseEvent) -> AdverseEventOut:
+    site_nom = event.site.nom if event.site else (event.service.site.nom if event.service.site else None)
+
     return AdverseEventOut(
         id=event.id,
         numero_suivi=event.numero_suivi,
         date_evenement=event.date_evenement,
         lieu=event.lieu,
         service_nom=event.service.nom,
+        site_nom=site_nom,
         professionnel_identifiant=event.professionnel_identifiant,
         contact_professionnel=event.contact_professionnel,
         categorie=event.categorie,
@@ -76,11 +79,14 @@ def _event_to_out(event: AdverseEvent) -> AdverseEventOut:
 def list_events(
     db: Session = Depends(get_db),
     include_cloture: bool = False,
+    site_id: int | None = None,
     _current_user: User = Depends(get_current_user),
 ):
     query = db.query(AdverseEvent)
     if not include_cloture:
         query = query.filter(AdverseEvent.statut != "cloture")
+    if site_id:
+        query = query.filter(AdverseEvent.site_id == site_id)
     events = query.order_by(AdverseEvent.date_declaration.desc()).all()
     return [_event_to_out(e) for e in events]
 
@@ -105,6 +111,7 @@ def declare_event(
         date_evenement=payload.date_evenement,
         lieu=payload.lieu,
         service_id=payload.service_id,
+        site_id=service.site_id,
         professionnel_identifiant=payload.professionnel_identifiant,
         contact_professionnel=payload.contact_professionnel,
         categorie=payload.categorie,

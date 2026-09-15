@@ -27,6 +27,7 @@ class AdverseEventOut(BaseModel):
     date_evenement: datetime
     lieu: str
     service_nom: str
+    site_nom: str | None = None
     professionnel_identifiant: str | None
     contact_professionnel: str | None
     categorie: list[str] | None

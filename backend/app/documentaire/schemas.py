@@ -95,6 +95,7 @@ class DocumentDetailOut(BaseModel):
     contenu: str | None
     perimetre: str | None
     confidentialite: str | None
+    site_nom: str | None = None
 
     class Config:
         from_attributes = True

@@ -73,6 +73,15 @@ def list_services(
 ):
     return db.query(Service).all()
 
+@router.get("/sites")
+def list_sites(
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+):
+    from app.core.models import Site
+
+    sites = db.query(Site).all()
+    return [{"id": s.id, "nom": s.nom} for s in sites]
 
 @router.post("/requests", response_model=DocumentRequestOut, status_code=201)
 def create_request(
@@ -95,6 +104,7 @@ def create_request(
         intitule=payload.intitule,
         type_document=payload.type_document,
         service_id=payload.service_id,
+        site_id=service.site_id,
         statut="en_attente_examen",
         document_parent_id=payload.document_parent_id,
     )
@@ -413,6 +423,7 @@ def search_documents(
     keyword: str | None = None,
     type_document: str | None = None,
     service_id: int | None = None,
+    site_id: int | None = None,
     auteur_email: str | None = None,
 ):
     """Recherche multicritère. Seuls les documents diffusés sont visibles
@@ -438,6 +449,8 @@ def search_documents(
         query = query.filter(Document.type_document == type_document)
     if service_id:
         query = query.filter(Document.service_id == service_id)
+    if site_id:
+        query = query.filter(Document.site_id == site_id)
 
     documents = query.all()
 
@@ -561,7 +574,18 @@ def get_document(
                 detail="Document obsolète : accès restreint au service Qualité et au rédacteur, en lecture seule",
             )
 
-    return document
+    site_nom = document.site.nom if document.site else (document.service.site.nom if document.service and document.service.site else None)
+
+    return DocumentDetailOut(
+        id=document.id,
+        intitule=document.intitule,
+        type_document=document.type_document,
+        statut=document.statut,
+        contenu=document.contenu,
+        perimetre=document.perimetre,
+        confidentialite=document.confidentialite,
+        site_nom=site_nom,
+    )
 
 
 @router.patch("/{document_id}/draft", response_model=DocumentDetailOut)
